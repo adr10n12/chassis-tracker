@@ -1,5 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
+import ProtectedRoute from "./lib/ProtectedRoute";
+import { signOut } from "./features/auth";
+import { useAuth } from "./lib/AuthProvider";
+
 
 /* ------------------------------------------------------------------
    Chassis Compliance Tracker (Home-only, Mobile-Friendly)
@@ -74,7 +78,16 @@ const DEMO = [
 ];
 
 /* ------------------------- App ------------------------- */
-export default function App(){
+export default function App(){  
+  // auth (let ProtectedRoute handle redirects — don't blank the screen when logged-out)
+  const { user, loading } = useAuth();
+  // Optional: tiny loading state if you want
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-slate-600">Loading…</div>
+    );
+  }
+
   // data
   const [items, setItems] = useState(() => {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -369,164 +382,176 @@ export default function App(){
 
   /* ------------------------- UI ------------------------- */
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-800">
-      {/* Header */}
-      <header className="sticky top-0 z-10 bg-white/90 backdrop-blur border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-2 sm:px-4 py-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="flex items-center gap-3">
-            <img src="/logo.png" alt="Nica Container Freight Line Inc."
-                 className="w-12 h-12 rounded-full object-contain" />
-            <div>
-              <h1 className="text-xl font-semibold">Chassis Compliance Tracker</h1>
-              <p className="text-sm text-gray-500">Track Annual &amp; BIT inspections, registration, and plates</p>
+    <ProtectedRoute>
+      <div className="min-h-screen bg-gray-50 text-gray-800">
+        {/* Header */}
+        <header className="sticky top-0 z-10 bg-white/90 backdrop-blur border-b border-gray-200">
+          <div className="max-w-7xl mx-auto px-2 sm:px-4 py-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-center gap-3">
+              <img src="/logo.png" alt="Nica Container Freight Line Inc."
+                   className="w-12 h-12 rounded-full object-contain" />
+              <div>
+                <h1 className="text-xl font-semibold">Chassis Compliance Tracker</h1>
+                <p className="text-sm text-gray-500">Track Annual &amp; BIT inspections, registration, and plates</p>
+              </div>
+            </div>
+
+            {/* actions - mobile scrollable */}
+            <div className="flex gap-2 overflow-x-auto no-scrollbar">
+              <button onClick={startAdd} className="px-3 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700 shadow whitespace-nowrap">+ Add chassis</button>
+              <button onClick={exportCSV} className="px-3 py-2 rounded-xl bg-white border border-gray-300 hover:bg-gray-50 whitespace-nowrap">Export CSV</button>
+              <button onClick={()=>window.print()} className="px-3 py-2 rounded-xl bg-white border border-gray-300 hover:bg-gray-50 whitespace-nowrap">Print</button>
+
+              {/* Logout */}
+              <button
+                onClick={async () => {
+                  await signOut();
+                  window.location.href = "/login";
+                }}
+                className="px-3 py-2 rounded-xl bg-red-600 text-white hover:bg-red-700"
+              >
+                Logout
+              </button>
+
+              {/* Import CSV/XLSX */}
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".csv,.xlsx,.xls"
+                className="hidden"
+                onChange={(e)=> e.target.files?.[0] && importChassisFile(e.target.files[0])}
+              />
+              <button onClick={()=>fileRef.current?.click()} className="px-3 py-2 rounded-xl bg-white border border-gray-300 hover:bg-gray-50 whitespace-nowrap">
+                Import (CSV/XLSX)
+              </button>
             </div>
           </div>
+        </header>
 
-          {/* actions - mobile scrollable */}
-          <div className="flex gap-2 overflow-x-auto no-scrollbar">
-            <button onClick={startAdd} className="px-3 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700 shadow whitespace-nowrap">+ Add chassis</button>
-            <button onClick={exportCSV} className="px-3 py-2 rounded-xl bg-white border border-gray-300 hover:bg-gray-50 whitespace-nowrap">Export CSV</button>
-            <button onClick={()=>window.print()} className="px-3 py-2 rounded-xl bg-white border border-gray-300 hover:bg-gray-50 whitespace-nowrap">Print</button>
+        {/* Toolbar */}
+        <div className="max-w-7xl mx-auto px-2 sm:px-4 py-4 flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
+          <input value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="Search unit, plate, VIN, notes..."
+                 className="w-full md:w-96 px-3 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"/>
+          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
+            {[
+              { key:"all", label:"All" },
+              { key:"overdue", label:"Overdue" },
+              { key:"soon", label:"Due ≤30d" },
+              { key:"ok", label:"OK" },
+            ].map(f=> (
+              <button key={f.key} onClick={()=>setFilter(f.key)}
+                      className={classNames("px-3 py-1.5 rounded-full border whitespace-nowrap",
+                        filter===f.key ? "bg-blue-600 text-white border-blue-600" : "bg-white border-gray-300 hover:bg-gray-50")}>
+                {f.label}
+              </button>
+            ))}
+          </div>
+        </div>
 
-            {/* Import CSV/XLSX */}
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".csv,.xlsx,.xls"
-              className="hidden"
-              onChange={(e)=> e.target.files?.[0] && importChassisFile(e.target.files[0])}
+        {/* Main: Mobile cards + Desktop table */}
+        <main className="max-w-7xl mx-auto px-2 sm:px-4 pb-24">
+          {/* Mobile list (phones) */}
+          <div className="sm:hidden">
+            <MobileList
+              items={filtered}
+              onMore={(it)=>setOpenHistory(it)}
+              onEdit={(it)=>setEditing(it)}
+              onDelete={(id)=>remove(id)}
             />
-            <button onClick={()=>fileRef.current?.click()} className="px-3 py-2 rounded-xl bg-white border border-gray-300 hover:bg-gray-50 whitespace-nowrap">
-              Import (CSV/XLSX)
-            </button>
           </div>
-        </div>
-      </header>
 
-      {/* Toolbar */}
-      <div className="max-w-7xl mx-auto px-2 sm:px-4 py-4 flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
-        <input value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="Search unit, plate, VIN, notes..."
-               className="w-full md:w-96 px-3 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"/>
-        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
-          {[
-            { key:"all", label:"All" },
-            { key:"overdue", label:"Overdue" },
-            { key:"soon", label:"Due ≤30d" },
-            { key:"ok", label:"OK" },
-          ].map(f=>(
-            <button key={f.key} onClick={()=>setFilter(f.key)}
-                    className={classNames("px-3 py-1.5 rounded-full border whitespace-nowrap",
-                      filter===f.key ? "bg-blue-600 text-white border-blue-600" : "bg-white border-gray-300 hover:bg-gray-50")}>
-              {f.label}
-            </button>
-          ))}
-        </div>
-      </div>
+          {/* Desktop/table view (sm and up) */}
+          <div className="hidden sm:block">
+            <div className="overflow-x-auto bg-white rounded-2xl shadow-sm border border-gray-200">
+              <table className="min-w-full">
+                <thead className="bg-gray-50">
+                <tr className="text-left text-sm text-gray-600">
+                  <Th label="#" className="w-12"/>
+                  <Th label="Unit" sortable sort={sort} setSort={setSort} sortKey="unit"/>
+                  <Th label="Plate # " sortable sort={sort} setSort={setSort} sortKey="plate"/>
+                  <Th label="VIN"/>
+                  <Th label="Registration Due"/>
+                  <Th label="Annual Due"/>
+                  <Th label="BIT Due"/>
+                  <Th label="Overall" sortable sort={sort} setSort={setSort} sortKey="nextDue"/>
+                  <Th label="Notes"/>
+                  <Th label="" className="w-28"/>
+                </tr>
+                </thead>
+                <tbody>
+                {filtered.length===0 && (
+                  <tr><td colSpan={10} className="text-center py-10 text-gray-500">
+                    No chassis yet. Click <span className="font-medium">Add chassis</span> to get started.
+                  </td></tr>
+                )}
+                {filtered.map((it, idx)=>{
+                  const regS = statusForDate(it.registrationDue);
+                  const annS = statusForDate(it.annualDue);
+                  const bitS = statusForDate(it.bitDue);
+                  const allS = overallStatus(it);
+                  return (
+                    <tr key={it.id} className={classNames(idx%2?"bg-white":"bg-gray-50/50")}> 
+                      <td className="px-3 py-3 text-sm text-gray-500">{idx+1}</td>
+                      <td className="px-3 py-3 font-medium whitespace-nowrap">{it.unit || "—"}</td>
+                      <td className="px-3 py-3">{it.plate || "—"}</td>
+                      <td className="px-3 py-3 text-sm text-gray-600 whitespace-nowrap">{it.vin || "—"}</td>
+                      <td className="px-3 py-3"><DueCell date={it.registrationDue} s={regS}/></td>
+                      <td className="px-3 py-3"><DueCell date={it.annualDue} s={annS}/></td>
+                      <td className="px-3 py-3"><DueCell date={it.bitDue} s={bitS}/></td>
+                      <td className="px-3 py-3"><StatusBadge s={allS} solid/></td>
+                      <td className="px-3 py-3 text-sm text-gray-600 truncate max-w-[16rem]" title={it.notes}>{it.notes}</td>
+                      <td className="px-3 py-3">
+                        <div className="flex gap-2 justify-end">
+                          <button
+                            onClick={() => setOpenHistory(it)}
+                            className="px-3 py-2 rounded-lg text-slate-700 hover:bg-slate-50 border border-slate-200"
+                          >
+                            More
+                          </button>
+                          <button onClick={()=>setEditing(it)} className="px-3 py-2 rounded-lg text-blue-700 hover:bg-blue-50 border border-blue-200">Edit</button>
+                          <button onClick={()=>remove(it.id)} className="px-3 py-2 rounded-lg text-red-700 hover:bg-red-50 border border-red-200">Delete</button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </main>
 
-      {/* Main: Mobile cards + Desktop table */}
-      <main className="max-w-7xl mx-auto px-2 sm:px-4 pb-24">
-        {/* Mobile list (phones) */}
-        <div className="sm:hidden">
-          <MobileList
-            items={filtered}
-            onMore={(it)=>setOpenHistory(it)}
-            onEdit={(it)=>setEditing(it)}
-            onDelete={(id)=>remove(id)}
+        {/* Drawer */}
+        {openHistory && (
+          <LedgerDrawer
+            key={openHistory.id}
+            item={openHistory}
+            bucket={ledger[openHistory.id] || { citations: [], repairs: [], inspections: { annual: [], bit: [] } }}
+            onClose={() => setOpenHistory(null)}
+            initialTab="inspections"
+            addCitation={(e) => addCitation(openHistory.id, e)}
+            addRepair={(e) => addRepair(openHistory.id, e)}
+            deleteCitation={(entryId) => deleteCitation(openHistory.id, entryId)}
+            deleteRepair={(entryId) => deleteRepair(openHistory.id, entryId)}
+            deleteInspection={(type, id) => deleteInspection(openHistory.id, type, id)}
           />
-        </div>
+        )}
 
-        {/* Desktop/table view (sm and up) */}
-        <div className="hidden sm:block">
-          <div className="overflow-x-auto bg-white rounded-2xl shadow-sm border border-gray-200">
-            <table className="min-w-full">
-              <thead className="bg-gray-50">
-              <tr className="text-left text-sm text-gray-600">
-                <Th label="#" className="w-12"/>
-                <Th label="Unit" sortable sort={sort} setSort={setSort} sortKey="unit"/>
-                <Th label="Plate # " sortable sort={sort} setSort={setSort} sortKey="plate"/>
-                <Th label="VIN"/>
-                <Th label="Registration Due"/>
-                <Th label="Annual Due"/>
-                <Th label="BIT Due"/>
-                <Th label="Overall" sortable sort={sort} setSort={setSort} sortKey="nextDue"/>
-                <Th label="Notes"/>
-                <Th label="" className="w-28"/>
-              </tr>
-              </thead>
-              <tbody>
-              {filtered.length===0 && (
-                <tr><td colSpan={10} className="text-center py-10 text-gray-500">
-                  No chassis yet. Click <span className="font-medium">Add chassis</span> to get started.
-                </td></tr>
-              )}
-              {filtered.map((it, idx)=>{
-                const regS = statusForDate(it.registrationDue);
-                const annS = statusForDate(it.annualDue);
-                const bitS = statusForDate(it.bitDue);
-                const allS = overallStatus(it);
-                return (
-                  <tr key={it.id} className={classNames(idx%2?"bg-white":"bg-gray-50/50")}>
-                    <td className="px-3 py-3 text-sm text-gray-500">{idx+1}</td>
-                    <td className="px-3 py-3 font-medium whitespace-nowrap">{it.unit || "—"}</td>
-                    <td className="px-3 py-3">{it.plate || "—"}</td>
-                    <td className="px-3 py-3 text-sm text-gray-600 whitespace-nowrap">{it.vin || "—"}</td>
-                    <td className="px-3 py-3"><DueCell date={it.registrationDue} s={regS}/></td>
-                    <td className="px-3 py-3"><DueCell date={it.annualDue} s={annS}/></td>
-                    <td className="px-3 py-3"><DueCell date={it.bitDue} s={bitS}/></td>
-                    <td className="px-3 py-3"><StatusBadge s={allS} solid/></td>
-                    <td className="px-3 py-3 text-sm text-gray-600 truncate max-w-[16rem]" title={it.notes}>{it.notes}</td>
-                    <td className="px-3 py-3">
-                      <div className="flex gap-2 justify-end">
-                        <button
-                          onClick={() => setOpenHistory(it)}
-                          className="px-3 py-2 rounded-lg text-slate-700 hover:bg-slate-50 border border-slate-200"
-                        >
-                          More
-                        </button>
-                        <button onClick={()=>setEditing(it)} className="px-3 py-2 rounded-lg text-blue-700 hover:bg-blue-50 border border-blue-200">Edit</button>
-                        <button onClick={()=>remove(it.id)} className="px-3 py-2 rounded-lg text-red-700 hover:bg-red-50 border border-red-200">Delete</button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </main>
+        {editing && <Editor value={editing} onCancel={()=>setEditing(null)} onSave={saveEdit}/>}
 
-      {/* Drawer */}
-      {openHistory && (
-        <LedgerDrawer
-          key={openHistory.id}
-          item={openHistory}
-          bucket={ledger[openHistory.id] || { citations: [], repairs: [], inspections: { annual: [], bit: [] } }}
-          onClose={() => setOpenHistory(null)}
-          initialTab="inspections"
-          addCitation={(e) => addCitation(openHistory.id, e)}
-          addRepair={(e) => addRepair(openHistory.id, e)}
-          deleteCitation={(id) => deleteCitation(openHistory.id, id)}
-          deleteRepair={(id) => deleteRepair(openHistory.id, id)}
-          // pass a function that expects (type, id)
-          deleteInspection={(type, id) => deleteInspection(openHistory.id, type, id)}
-        />
-      )}
+        <style>{`
+          /* Hide horizontal scrollbars on mobile action rows */
+          .no-scrollbar::-webkit-scrollbar { display: none; }
+          .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
-      {editing && <Editor value={editing} onCancel={()=>setEditing(null)} onSave={saveEdit}/>}
-
-      <style>{`
-        /* Hide horizontal scrollbars on mobile action rows */
-        .no-scrollbar::-webkit-scrollbar { display: none; }
-        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-
-        @media print {
-          header, .no-print { display: none !important; }
-          main { padding: 0; }
-          table { font-size: 11px; }
-        }
-      `}</style>
-    </div>
+          @media print {
+            header, .no-print { display: none !important; }
+            main { padding: 0; }
+            table { font-size: 11px; }
+          }
+        `}</style>
+      </div>
+    </ProtectedRoute>
   );
 }
 
@@ -553,10 +578,10 @@ function Th({ label, className = "", sortable = false, sort, setSort, sortKey })
 }
 function StatusBadge({ s, solid = false }) {
   const palette = {
-    slate: solid ? "bg-slate-500 text-white" : "text-slate-700 bg-slate-100 border border-slate-200",
-    red:   solid ? "bg-red-600 text-white"   : "text-red-700 bg-red-50 border border-red-200",
-    amber: solid ? "bg-amber-500 text-white" : "text-amber-800 bg-amber-50 border border-amber-200",
-    emerald: solid ? "bg-emerald-600 text-white" : "text-emerald-700 bg-emerald-50 border border-emerald-200",
+    slate:   solid ? "bg-slate-500 text-white"     : "text-slate-700 bg-slate-100 border border-slate-200",
+    red:     solid ? "bg-red-600 text-white"       : "text-red-700 bg-red-50 border border-red-200",
+    amber:   solid ? "bg-amber-500 text-white"     : "text-amber-800 bg-amber-50 border border-amber-200",
+    emerald: solid ? "bg-emerald-600 text-white"   : "text-emerald-700 bg-emerald-50 border border-emerald-200",
   }[s.tone || "slate"];
   return <span className={classNames("inline-flex items-center px-2 py-1 rounded-full text-xs font-medium", palette)}>{s.label}</span>;
 }
@@ -825,7 +850,8 @@ function LedgerDrawer({
                 String(linkedCount[e.id] || 0),
                 e.id
               ])}
-              onDelete={(id)=>deleteCitation(item.id, id)}
+              // FIX: call the prop directly (it's already bound to chassisId)
+              onDelete={deleteCitation}
               emptyText="No citations yet."
             />
           </>
@@ -897,7 +923,8 @@ function LedgerDrawer({
                   e.id
                 ];
               })}
-              onDelete={(id)=>deleteRepair(item.id, id)}
+              // FIX: call the prop directly (it's already bound to chassisId)
+              onDelete={deleteRepair}
               emptyText="No repairs yet."
             />
           </>

@@ -7,8 +7,8 @@ export default function ProtectedRoute({ children }) {
 
   if (loading) return null; // or a spinner
 
-  // Not logged in? Send to /login and remember where they were going
-  if (!user) return <Navigate to="/login" replace state={{ from: location }} />;
-
+  if (!user) {
+    return <Navigate to="/login" replace state={{ from: location }} />;
+  }
   return children;
 }
