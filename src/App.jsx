@@ -909,7 +909,6 @@ function LedgerDrawer({
                 String(linkedCount[e.id] || 0),
                 e.id
               ])}
-              // FIX: call the prop directly (it's already bound to chassisId)
               onDelete={deleteCitation}
               emptyText="No citations yet."
             />
@@ -982,7 +981,6 @@ function LedgerDrawer({
                   e.id
                 ];
               })}
-              // FIX: call the prop directly (it's already bound to chassisId)
               onDelete={deleteRepair}
               emptyText="No repairs yet."
             />
