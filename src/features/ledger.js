@@ -23,7 +23,10 @@ export async function upsertLedgerRow(chassisId, bucket) {
     repairs: bucket.repairs || [],
     inspections: bucket.inspections || { annual: [], bit: [] },
   });
-  if (error) throw error;
+  if (error) {
+    alert('Failed to save inspections/citations/repairs: ' + error.message);
+    throw error;
+  }
 }
 
 export function onLedgerChange(callback) {

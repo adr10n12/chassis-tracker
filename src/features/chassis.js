@@ -12,7 +12,10 @@ export async function fetchChassis() {
 export async function upsertChassis(rows) {
   const payload = Array.isArray(rows) ? rows : [rows];
   const { error } = await supabase.from('chassis').upsert(payload);
-  if (error) throw error;
+  if (error) {
+    alert('Failed to save chassis: ' + error.message);
+    throw error;
+  }
 }
 
 export async function deleteChassis(id) {
