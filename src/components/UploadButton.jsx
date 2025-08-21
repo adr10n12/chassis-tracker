@@ -1,14 +1,26 @@
 import { useRef, useState } from 'react';
-import { uploadRepairAttachment, getSignedUrl } from '../features/storage';
+import {
+  uploadInspectionAttachment,
+  uploadCitationAttachment,
+  uploadRepairAttachment,
+  getSignedUrl
+} from '../features/storage';
 
-export default function UploadButton() {
+export default function UploadButton({ type = 'repairs' }) {
   const inputRef = useRef();
   const [lastPath, setLastPath] = useState(null);
+
+  const uploaders = {
+    inspections: uploadInspectionAttachment,
+    citations: uploadCitationAttachment,
+    repairs: uploadRepairAttachment
+  };
 
   async function handleUpload(e) {
     const file = e.target.files?.[0];
     if (!file) return;
-    const path = await uploadRepairAttachment(file);
+    const uploader = uploaders[type] || uploaders.repairs;
+    const path = await uploader(file);
     setLastPath(path);
     alert('Uploaded to: ' + path);
   }
