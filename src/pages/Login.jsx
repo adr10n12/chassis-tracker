@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { signIn, signInWithGoogle, signUp, getCurrentUser } from "../features/auth";
+import { signIn, signInWithGoogle, signUp } from "../features/auth";
 import { useAuth } from "../lib/AuthProvider";
 
 export default function Login() {
@@ -18,9 +18,25 @@ export default function Login() {
 
   return (
     <div className="max-w-sm mx-auto mt-16 space-y-3">
+      <img
+        src="/logo.png"
+        alt="Nica Container Freight Line Inc."
+        className="w-20 h-20 mx-auto rounded-full object-contain"
+      />
       <h1 className="text-xl font-semibold">Sign in</h1>
-      <input className="border p-2 w-full" placeholder="Email" value={email} onChange={e=>setEmail(e.target.value)} />
-      <input className="border p-2 w-full" type="password" placeholder="Password" value={password} onChange={e=>setPassword(e.target.value)} />
+      <input
+        className="border p-2 w-full"
+        placeholder="Email"
+        value={email}
+        onChange={e => setEmail(e.target.value)}
+      />
+      <input
+        className="border p-2 w-full"
+        type="password"
+        placeholder="Password"
+        value={password}
+        onChange={e => setPassword(e.target.value)}
+      />
       <div className="flex gap-2">
         <button className="border px-3 py-2" onClick={async()=>{
           const { error } = await signIn(email, password);
