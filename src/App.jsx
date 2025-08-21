@@ -3,6 +3,7 @@ import * as XLSX from "xlsx";
 import ProtectedRoute from "./lib/ProtectedRoute";
 import { signOut } from "./features/auth";
 import { useAuth } from "./lib/AuthProvider";
+import UploadButton from "./components/UploadButton";
 
 
 /* ------------------------------------------------------------------
@@ -807,11 +808,12 @@ function LedgerDrawer({
           <>
             <h3 className="text-sm font-semibold text-gray-700 mb-2">Annual inspections</h3>
             <LedgerTable
-              columns={["Done", "Due", "Recorded", ""]}
+              columns={["Done", "Due", "Recorded", "Attachment", ""]}
               rows={(inspections.annual||[]).map(e=>[
                 fmtHumanDate(e.doneDate),
                 fmtHumanDate(e.dueDate),
                 new Date(e.enteredAt).toLocaleString(),
+                <UploadButton type="inspections" />,
                 e.id
               ])}
               onDelete={(id)=>deleteInspection("annual", id)}
@@ -820,11 +822,12 @@ function LedgerDrawer({
             <div className="h-6"></div>
             <h3 className="text-sm font-semibold text-gray-700 mb-2">BIT inspections</h3>
             <LedgerTable
-              columns={["Done", "Due", "Recorded", ""]}
+              columns={["Done", "Due", "Recorded", "Attachment", ""]}
               rows={(inspections.bit||[]).map(e=>[
                 fmtHumanDate(e.doneDate),
                 fmtHumanDate(e.dueDate),
                 new Date(e.enteredAt).toLocaleString(),
+                <UploadButton type="inspections" />,
                 e.id
               ])}
               onDelete={(id)=>deleteInspection("bit", id)}
