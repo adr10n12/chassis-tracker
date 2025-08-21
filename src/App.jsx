@@ -4,6 +4,12 @@ import ProtectedRoute from "./lib/ProtectedRoute";
 import { signOut } from "./features/auth";
 import { useAuth } from "./lib/AuthProvider";
 import UploadButton from "./components/UploadButton";
+import {
+  fetchChassis,
+  upsertChassis,
+  deleteChassis,
+  onChassisChange,
+} from "./features/chassis";
 
 
 /* ------------------------------------------------------------------
@@ -13,10 +19,8 @@ import UploadButton from "./components/UploadButton";
    - Inspection history stored per chassis
    - Repairs can be linked to a Citation (and unlink on citation delete)
    - Import: CSV or Excel (.xlsx/.xls) with Unit/Plate/VIN
-   - Persistence: localStorage
+   - Persistence: Supabase (shared chassis data) + localStorage for ledger
 ------------------------------------------------------------------- */
-
-const STORAGE_KEY = "chassis_tracker_v1";
 const LEDGER_KEY = "chassis_ledger_v1";
 
 /* ------------------------- Utils ------------------------- */
@@ -84,19 +88,34 @@ export default function App(){
   const { loading } = useAuth();
 
   // data
-  const [items, setItems] = useState(() => {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return DEMO;
-    try { const p = JSON.parse(raw); return Array.isArray(p) ? p : DEMO; } catch { return DEMO; }
-  });
+  const [items, setItems] = useState([]);
   const [ledger, setLedger] = useState(() => {
     const raw = localStorage.getItem(LEDGER_KEY);
     try { return raw ? JSON.parse(raw) : {}; } catch { return {}; }
   });
 
-  // persist
-  useEffect(()=> localStorage.setItem(STORAGE_KEY, JSON.stringify(items)), [items]);
-  useEffect(()=> localStorage.setItem(LEDGER_KEY, JSON.stringify(ledger)), [ledger]);
+  // load shared chassis data and subscribe to changes
+  useEffect(() => {
+    fetchChassis()
+      .then((data) => setItems(data.length ? data : DEMO))
+      .catch(() => setItems(DEMO));
+    const channel = onChassisChange(({ eventType, new: newRow, old }) => {
+      setItems((prev) => {
+        if (eventType === "INSERT") return [newRow, ...prev];
+        if (eventType === "UPDATE")
+          return prev.map((it) => (it.id === newRow.id ? newRow : it));
+        if (eventType === "DELETE")
+          return prev.filter((it) => it.id !== old.id);
+        return prev;
+      });
+    });
+    return () => {
+      channel.unsubscribe();
+    };
+  }, []);
+
+  // persist ledger locally
+  useEffect(() => localStorage.setItem(LEDGER_KEY, JSON.stringify(ledger)), [ledger]);
 
   // ensure bucket per chassis (and inspections sub-buckets)
   useEffect(()=>{
@@ -194,13 +213,14 @@ export default function App(){
         return copy;
       });
     }
-
+    upsertChassis(it);
     setEditing(null);
   }
 
   function remove(id){
     if (!confirm("Delete this chassis?")) return;
     setItems(prev=> prev.filter(p=>p.id!==id));
+    deleteChassis(id);
   }
   function exportCSV(){
     const header = ["unit","plate","vin","registrationDue","annualDue","bitDue","notes"];
@@ -273,25 +293,23 @@ export default function App(){
         });
       }
       if (!mapped.length) return alert("No usable rows found.");
-
       // Deduplicate by VIN (preferred) or Unit+Plate
-      setItems(prev => {
-        const seenVIN = new Set(prev.map(p => (p.vin||"").toUpperCase()));
-        const seenKey = new Set(prev.map(p => `${(p.unit||"").toUpperCase()}|${(p.plate||"").toUpperCase()}`));
+      const seenVIN = new Set(items.map(p => (p.vin || "").toUpperCase()));
+      const seenKey = new Set(items.map(p => `${(p.unit || "").toUpperCase()}|${(p.plate || "").toUpperCase()}`));
 
-        const toAdd = mapped.filter(m => {
-          const vinKey = (m.vin||"").toUpperCase();
-          if (vinKey && seenVIN.has(vinKey)) return false;
-          const key = `${(m.unit||"").toUpperCase()}|${(m.plate||"").toUpperCase()}`;
-          if (seenKey.has(key)) return false;
-          seenVIN.add(vinKey);
-          seenKey.add(key);
-          return true;
-        });
-
-        alert(`Imported ${toAdd.length} chassis${toAdd.length !== mapped.length ? ` (skipped ${mapped.length - toAdd.length} duplicates)` : ""}.`);
-        return [...toAdd, ...prev];
+      const toAdd = mapped.filter(m => {
+        const vinKey = (m.vin || "").toUpperCase();
+        if (vinKey && seenVIN.has(vinKey)) return false;
+        const key = `${(m.unit || "").toUpperCase()}|${(m.plate || "").toUpperCase()}`;
+        if (seenKey.has(key)) return false;
+        seenVIN.add(vinKey);
+        seenKey.add(key);
+        return true;
       });
+
+      alert(`Imported ${toAdd.length} chassis${toAdd.length !== mapped.length ? ` (skipped ${mapped.length - toAdd.length} duplicates)` : ""}.`);
+      setItems(prev => [...toAdd, ...prev]);
+      upsertChassis(toAdd);
     };
 
     // Excel
