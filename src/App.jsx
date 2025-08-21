@@ -78,15 +78,9 @@ const DEMO = [
 ];
 
 /* ------------------------- App ------------------------- */
-export default function App(){  
+export default function App(){
   // auth (let ProtectedRoute handle redirects — don't blank the screen when logged-out)
-  const { user, loading } = useAuth();
-  // Optional: tiny loading state if you want
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center text-slate-600">Loading…</div>
-    );
-  }
+  const { loading } = useAuth();
 
   // data
   const [items, setItems] = useState(() => {
@@ -156,6 +150,12 @@ export default function App(){
       return 0;
     });
   },[items,query,filter,sort]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-slate-600">Loading…</div>
+    );
+  }
 
   /* ---------- Actions ---------- */
   function startAdd(){ setEditing({id:rid(), unit:"", plate:"", vin:"", registrationDue:"", annualDue:"", bitDue:"", notes:""}); }

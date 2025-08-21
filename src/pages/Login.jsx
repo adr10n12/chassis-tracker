@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { signIn, signInWithGoogle, signUp, getCurrentUser } from "../features/auth";
+import { signIn, signInWithGoogle, signUp } from "../features/auth";
 import { useAuth } from "../lib/AuthProvider";
 
 export default function Login() {
