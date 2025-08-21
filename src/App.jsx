@@ -109,28 +109,14 @@ export default function App(){
   const { loading } = useAuth();
 
   // data
-  const STORAGE_KEY = "chassis-items";
-  const [items, setItems] = useState(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      return raw ? JSON.parse(raw) : [];
-    } catch {
-      return [];
-    }
-  });
-  const hasLocalItems = useRef(items.length > 0);
+  const [items, setItems] = useState([]);
   const [ledger, setLedger] = useState({});
 
   // load shared chassis data and subscribe to changes
   useEffect(() => {
     fetchChassis()
-      .then((data) => {
-        if (data.length) setItems(data);
-        else if (!hasLocalItems.current) setItems(DEMO);
-      })
-      .catch(() => {
-        if (!hasLocalItems.current) setItems(DEMO);
-      });
+      .then((data) => setItems(data.length ? data : DEMO))
+      .catch(() => setItems(DEMO));
     const channel = onChassisChange(({ eventType, new: newRow, old }) => {
       setItems((prev) => {
         if (eventType === "INSERT") return [newRow, ...prev];
@@ -145,11 +131,6 @@ export default function App(){
       channel.unsubscribe();
     };
   }, []);
-
-  // persist chassis locally
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-  }, [items]);
 
   // load shared ledger data and subscribe to changes
   useEffect(() => {
