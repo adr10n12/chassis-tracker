@@ -10,6 +10,11 @@ import {
   deleteChassis,
   onChassisChange,
 } from "./features/chassis";
+import {
+  fetchLedger,
+  upsertLedgerRow,
+  onLedgerChange,
+} from "./features/ledger";
 
 
 /* ------------------------------------------------------------------
@@ -19,9 +24,8 @@ import {
    - Inspection history stored per chassis
    - Repairs can be linked to a Citation (and unlink on citation delete)
    - Import: CSV or Excel (.xlsx/.xls) with Unit/Plate/VIN
-   - Persistence: Supabase (shared chassis data) + localStorage for ledger
+   - Persistence: Supabase (shared chassis & ledger data)
 ------------------------------------------------------------------- */
-const LEDGER_KEY = "chassis_ledger_v1";
 
 /* ------------------------- Utils ------------------------- */
 function fmtDate(d) {
@@ -89,10 +93,7 @@ export default function App(){
 
   // data
   const [items, setItems] = useState([]);
-  const [ledger, setLedger] = useState(() => {
-    const raw = localStorage.getItem(LEDGER_KEY);
-    try { return raw ? JSON.parse(raw) : {}; } catch { return {}; }
-  });
+  const [ledger, setLedger] = useState({});
 
   // load shared chassis data and subscribe to changes
   useEffect(() => {
@@ -114,8 +115,28 @@ export default function App(){
     };
   }, []);
 
-  // persist ledger locally
-  useEffect(() => localStorage.setItem(LEDGER_KEY, JSON.stringify(ledger)), [ledger]);
+  // load shared ledger data and subscribe to changes
+  useEffect(() => {
+    fetchLedger().then((data) => setLedger(data)).catch(() => setLedger({}));
+    const channel = onLedgerChange(({ eventType, new: newRow, old }) => {
+      setLedger((prev) => {
+        const copy = { ...prev };
+        if (eventType === "DELETE") {
+          delete copy[old.chassis_id];
+        } else {
+          copy[newRow.chassis_id] = {
+            citations: newRow.citations || [],
+            repairs: newRow.repairs || [],
+            inspections: newRow.inspections || { annual: [], bit: [] },
+          };
+        }
+        return copy;
+      });
+    });
+    return () => {
+      channel.unsubscribe();
+    };
+  }, []);
 
   // ensure bucket per chassis (and inspections sub-buckets)
   useEffect(()=>{
@@ -178,6 +199,21 @@ export default function App(){
   }
 
   /* ---------- Actions ---------- */
+  function updateLedger(chassisId, modify) {
+    setLedger((prev) => {
+      const copy = { ...prev };
+      const bucket =
+        copy[chassisId] ||
+        (copy[chassisId] = {
+          citations: [],
+          repairs: [],
+          inspections: { annual: [], bit: [] },
+        });
+      modify(bucket);
+      upsertLedgerRow(chassisId, bucket).catch(console.error);
+      return copy;
+    });
+  }
   function startAdd(){ setEditing({id:rid(), unit:"", plate:"", vin:"", registrationDue:"", annualDue:"", bitDue:"", notes:""}); }
 
   // saveEdit gets optional extras { lastAnnual, lastBit } to store history
@@ -190,10 +226,8 @@ export default function App(){
 
     const { lastAnnual, lastBit } = extras;
     if (lastAnnual || lastBit) {
-      setLedger(prev => {
-        const copy = { ...prev };
-        const bucket = copy[it.id] || (copy[it.id] = { citations:[], repairs:[], inspections:{ annual:[], bit:[] } });
-        if (!bucket.inspections) bucket.inspections = { annual:[], bit:[] };
+      updateLedger(it.id, (bucket) => {
+        if (!bucket.inspections) bucket.inspections = { annual: [], bit: [] };
         const nowIso = new Date().toISOString();
 
         if (lastAnnual) {
@@ -210,7 +244,6 @@ export default function App(){
             arr.unshift({ id: rid(), doneDate: lastBit, dueDate: due, enteredAt: nowIso });
           }
         }
-        return copy;
       });
     }
     upsertChassis(it);
@@ -355,47 +388,35 @@ export default function App(){
 
   // Ledger actions (history)
   function addCitation(chassisId, entry){
-    setLedger(prev=>{
-      const copy = {...prev};
-      const bucket = copy[chassisId] || (copy[chassisId] = {citations:[], repairs:[], inspections:{annual:[], bit:[]}})
-      if (entry._nonce && (bucket.citations||[]).some(e => e._nonce === entry._nonce)) return prev;
-      bucket.citations = [{ id: rid(), ...entry }, ...(bucket.citations||[])];
-      return copy;
+    updateLedger(chassisId, (bucket) => {
+      if (entry._nonce && (bucket.citations || []).some((e) => e._nonce === entry._nonce)) return;
+      bucket.citations = [{ id: rid(), ...entry }, ...(bucket.citations || [])];
     });
   }
   function addRepair(chassisId, entry){
-    setLedger(prev=>{
-      const copy = {...prev};
-      const bucket = copy[chassisId] || (copy[chassisId] = {citations:[], repairs:[], inspections:{annual:[], bit:[]}})
-      if (entry._nonce && (bucket.repairs||[]).some(e => e._nonce === entry._nonce)) return prev;
-      bucket.repairs = [{ id: rid(), ...entry }, ...(bucket.repairs||[])];
-      return copy;
+    updateLedger(chassisId, (bucket) => {
+      if (entry._nonce && (bucket.repairs || []).some((e) => e._nonce === entry._nonce)) return;
+      bucket.repairs = [{ id: rid(), ...entry }, ...(bucket.repairs || [])];
     });
   }
   // delete citation AND unlink repairs pointing to it
   function deleteCitation(chassisId, entryId){
-    setLedger(prev=>{
-      const copy = {...prev};
-      const b = copy[chassisId];
-      if (!b) return prev;
-
-      b.citations = (b.citations || []).filter(e => e.id !== entryId);
-      b.repairs   = (b.repairs   || []).map(r => r.citationId === entryId ? { ...r, citationId: "" } : r);
-
-      return copy;
+    updateLedger(chassisId, (b) => {
+      b.citations = (b.citations || []).filter((e) => e.id !== entryId);
+      b.repairs = (b.repairs || []).map((r) =>
+        r.citationId === entryId ? { ...r, citationId: "" } : r
+      );
     });
   }
   function deleteRepair(chassisId, entryId){
-    setLedger(prev=>{
-      const copy = {...prev}; const b = copy[chassisId]; if (!b) return prev;
-      b.repairs = (b.repairs||[]).filter(e=> e.id !== entryId); return copy;
+    updateLedger(chassisId, (b) => {
+      b.repairs = (b.repairs || []).filter((e) => e.id !== entryId);
     });
   }
   function deleteInspection(chassisId, type, entryId){
-    setLedger(prev=>{
-      const copy = {...prev}; const b = copy[chassisId]; if (!b || !b.inspections) return prev;
-      b.inspections[type] = (b.inspections[type] || []).filter(e => e.id !== entryId);
-      return copy;
+    updateLedger(chassisId, (b) => {
+      if (!b.inspections) b.inspections = { annual: [], bit: [] };
+      b.inspections[type] = (b.inspections[type] || []).filter((e) => e.id !== entryId);
     });
   }
 
